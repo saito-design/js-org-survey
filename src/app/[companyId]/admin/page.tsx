@@ -109,6 +109,7 @@ export default function AdminDashboard() {
   const [segmentScores, setSegmentScores] = useState<SegmentScore[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
 
   // UI状態
   const [displayMode, setDisplayMode] = useState<DisplayMode>('absolute');
@@ -121,6 +122,22 @@ export default function AdminDashboard() {
     distribution: Distribution | null;
     n: number;
   } | null>(null);
+
+  // ポータルトークンをURLから受け取ってセッション作成
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('auth_token');
+    if (token) {
+      window.history.replaceState({}, '', window.location.pathname);
+      fetch('/api/auth/portal-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, companyId }),
+      }).finally(() => setAuthReady(true));
+    } else {
+      setAuthReady(true);
+    }
+  }, [companyId]);
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -151,8 +168,8 @@ export default function AdminDashboard() {
   }, [router]);
 
   useEffect(() => {
-    fetchSummary();
-  }, [fetchSummary]);
+    if (authReady) fetchSummary();
+  }, [fetchSummary, authReady]);
 
   if (loading) {
     return (
