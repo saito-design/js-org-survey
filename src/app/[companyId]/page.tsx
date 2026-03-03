@@ -32,8 +32,16 @@ export default function LoginPage() {
       if (decoded && decoded.exp > Date.now() && decoded.company === companyId) {
         sessionStorage.setItem('portal_auth', urlToken);
         window.history.replaceState({}, '', window.location.pathname);
-        // ポータル認証OK - 管理画面へ
-        router.replace(`/${companyId}/admin`);
+        // ポータルトークンでサーバーセッションを作成してから管理画面へ
+        fetch('/api/auth/portal-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: urlToken, companyId }),
+        }).then(() => {
+          router.replace(`/${companyId}/admin`);
+        }).catch(() => {
+          router.replace(`/${companyId}/admin`);
+        });
         return;
       }
     }
@@ -43,7 +51,26 @@ export default function LoginPage() {
     if (sessionToken) {
       const decoded = decodeToken(sessionToken);
       if (decoded && decoded.exp > Date.now() && decoded.company === companyId) {
-        router.replace(`/${companyId}/admin`);
+        // サーバーセッションが有効か確認
+        fetch('/api/auth/me').then(async (res) => {
+          if (res.ok) {
+            const data = await res.json();
+            if (data.isLoggedIn) {
+              router.replace(`/${companyId}/admin`);
+              return;
+            }
+          }
+          // セッションが切れていたら再作成
+          return fetch('/api/auth/portal-login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: sessionToken, companyId }),
+          }).then(() => {
+            router.replace(`/${companyId}/admin`);
+          });
+        }).catch(() => {
+          router.replace(`/${companyId}/admin`);
+        });
         return;
       } else {
         sessionStorage.removeItem('portal_auth');
