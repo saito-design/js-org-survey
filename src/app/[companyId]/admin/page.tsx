@@ -199,6 +199,7 @@ export default function AdminDashboard() {
       {/* Sticky Header */}
       <StickyHeader
         summary={summary}
+        segmentScores={segmentScores}
         displayMode={displayMode}
         setDisplayMode={setDisplayMode}
         minN={minN}
@@ -290,12 +291,14 @@ export default function AdminDashboard() {
 
 function StickyHeader({
   summary,
+  segmentScores,
   displayMode,
   setDisplayMode,
   minN,
   setMinN,
 }: {
   summary: SurveySummary;
+  segmentScores: SegmentScore[];
   displayMode: DisplayMode;
   setDisplayMode: (mode: DisplayMode) => void;
   minN: number;
@@ -357,13 +360,29 @@ function StickyHeader({
             {/* エクスポートボタン */}
             <div className="flex gap-2">
               <button
-                onClick={() => alert('NotebookLM出力（未実装）')}
+                onClick={() => {
+                  if (!summary) return;
+                  // Markdownレポートを生成してダウンロード
+                  const md = generateMarkdownReport(summary, segmentScores);
+                  const blob = new Blob([md], { type: 'text/markdown; charset=utf-8' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `組織診断サマリー_${summary.surveyId}.md`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
                 className="bg-purple-500 text-white px-3 py-1 rounded text-sm hover:bg-purple-600"
               >
                 MD出力
               </button>
               <button
-                onClick={() => alert('CSV出力（未実装）')}
+                onClick={() => {
+                  if (!summary) return;
+                  // CSV出力APIを呼び出してダウンロード
+                  const url = `/api/admin/export?survey_id=${encodeURIComponent(summary.surveyId)}`;
+                  window.open(url, '_blank');
+                }}
                 className="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600"
               >
                 CSV
@@ -718,6 +737,70 @@ function DistributionModal({
 // ============================================================
 // 因子別スコア
 // ============================================================
+
+// ============================================================
+// Markdownレポート生成
+// ============================================================
+
+function generateMarkdownReport(summary: SurveySummary, segmentScores: SegmentScore[]): string {
+  const lines: string[] = [];
+  lines.push(`# 組織診断サマリー（${summary.surveyId}）\n`);
+  lines.push(`生成日時: ${new Date().toLocaleString('ja-JP')}\n`);
+
+  // 総合スコア
+  lines.push(`## 総合スコア\n`);
+  lines.push(`- **総合平均**: ${summary.overallScore?.toFixed(2) ?? '-'} / 5.00`);
+  lines.push(`- **回答率**: ${summary.responseRate.byRespondent.answered}/${summary.responseRate.byRespondent.total} (${(summary.responseRate.byRespondent.rate * 100).toFixed(1)}%)`);
+  lines.push(`- **質問充足率**: ${(summary.responseRate.byQuestion.rate * 100).toFixed(1)}%\n`);
+
+  // 強み
+  lines.push(`## 強み TOP3\n`);
+  summary.strengths.forEach((s, i) => {
+    lines.push(`${i + 1}. **${s.element_name}**: ${s.mean.toFixed(2)}`);
+  });
+  lines.push('');
+
+  // 課題
+  lines.push(`## 課題 TOP3\n`);
+  summary.weaknesses.forEach((w, i) => {
+    lines.push(`${i + 1}. **${w.element_name}**: ${w.mean.toFixed(2)}`);
+  });
+  lines.push('');
+
+  // 因子別スコア
+  lines.push(`## 因子別スコア\n`);
+  summary.factorScores.forEach(f => {
+    lines.push(`### ${f.factor_name}（${f.mean?.toFixed(2) ?? '-'}）\n`);
+    lines.push(`| 要素 | スコア |`);
+    lines.push(`|------|--------|`);
+    f.elements.forEach(e => {
+      lines.push(`| ${e.element_name} | ${e.mean?.toFixed(2) ?? '-'} |`);
+    });
+    lines.push('');
+  });
+
+  // 事業所別ヒートマップ
+  if (segmentScores.length > 0) {
+    lines.push(`## 事業所別スコア\n`);
+    const elements = summary.elementScores;
+    lines.push(`| 事業所 | N | ${elements.map(e => e.element_name.slice(0, 6)).join(' | ')} |`);
+    lines.push(`|--------|---|${elements.map(() => '------').join('|')}|`);
+
+    // 全体平均行
+    lines.push(`| **全体平均** | - | ${elements.map(e => e.mean?.toFixed(1) ?? '-').join(' | ')} |`);
+
+    segmentScores.forEach(seg => {
+      const cols = elements.map(e => {
+        const v = seg.elementScores[e.element_id];
+        return v !== null && v !== undefined ? v.toFixed(1) : '-';
+      });
+      lines.push(`| ${seg.segmentName} | ${seg.n} | ${cols.join(' | ')} |`);
+    });
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
 
 function FactorScoresSection({ factorScores }: { factorScores: FactorScore[] }) {
   return (

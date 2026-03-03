@@ -159,7 +159,28 @@ export async function GET(req: NextRequest) {
     ]);
 
     if (!current) {
-      return NextResponse.json({ error: 'No data for specified period', asOf }, { status: 404 });
+      // データなしの場合でも200で空レスポンスを返す（404ではなく）
+      const emptyResult: SummaryResponse = {
+        current: {
+          summary: {
+            surveyId: asOf,
+            generatedAt: new Date().toISOString(),
+            overallScore: null,
+            factorScores: [],
+            elementScores: [],
+            strengths: [],
+            weaknesses: [],
+            responseRate: {
+              byRespondent: { answered: 0, total: 0, rate: 0 },
+              byQuestion: { answered: 0, total: 0, rate: 0 },
+            },
+            n: 0,
+          },
+        },
+        orgUnits,
+        is_owner: session.is_owner ?? false,
+      };
+      return NextResponse.json(emptyResult);
     }
 
     // 全体平均の計算（全社全体 - フィルタ適用なし）

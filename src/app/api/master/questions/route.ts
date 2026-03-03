@@ -14,7 +14,7 @@ export async function GET() {
     // ローカルファイルから読み込み（正の置き場: questions/questions.json）
     const filePath = path.join(process.cwd(), 'questions', 'questions.json');
     if (!fs.existsSync(filePath)) {
-      return NextResponse.json({ error: 'questions.json not found' }, { status: 404 });
+      return NextResponse.json({ questions: [], factors: [], elements: [] });
     }
 
     const fileContent = fs.readFileSync(filePath, 'utf-8');

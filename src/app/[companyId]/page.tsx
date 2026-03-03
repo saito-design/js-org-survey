@@ -159,7 +159,7 @@ export default function LoginPage() {
         </form>
 
         <div className="mt-6 pt-4 border-t text-center">
-          <a href="http://localhost:3000" className="text-sm text-teal-600 hover:text-teal-800">
+          <a href={process.env.NEXT_PUBLIC_PORTAL_URL || 'http://localhost:3000'} className="text-sm text-teal-600 hover:text-teal-800">
             ポータルへ戻る
           </a>
         </div>
