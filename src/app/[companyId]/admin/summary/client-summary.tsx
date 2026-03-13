@@ -429,100 +429,6 @@ export default function ClientSummary() {
       </header>
 
       <main className="px-4 md:px-6 py-4 space-y-4 max-w-7xl mx-auto">
-        {/* AI分析セクション */}
-        <div className="bg-linear-to-br from-indigo-50 to-white rounded-xl shadow-sm border border-indigo-100 p-5 overflow-hidden relative">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center shadow-lg shadow-indigo-200">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-              </div>
-              <div>
-                <h2 className="text-lg font-black text-indigo-900 leading-tight">AI組織診断アドバイザー</h2>
-                <p className="text-xs text-indigo-600 font-bold opacity-80 uppercase tracking-widest">Powered by Gemini 2.0</p>
-              </div>
-            </div>
-            {!aiAnalysis && !aiLoading && (
-              <button 
-                onClick={handleAiAnalyze}
-                className="px-6 py-2 bg-indigo-600 text-white rounded-full text-sm font-black hover:bg-indigo-700 transition-all shadow-md active:scale-95 flex items-center gap-2"
-              >
-                要約と課題を自動生成
-              </button>
-            )}
-            {aiLoading && (
-              <div className="flex items-center gap-2 text-indigo-600 text-sm font-bold">
-                <div className="animate-pulse flex space-x-1">
-                  <div className="h-2 w-2 bg-indigo-600 rounded-full"></div>
-                  <div className="h-2 w-2 bg-indigo-600 rounded-full"></div>
-                  <div className="h-2 w-2 bg-indigo-600 rounded-full"></div>
-                </div>
-                数値を読み取り中...
-              </div>
-            )}
-            {aiAnalysis && !aiLoading && (
-              <button 
-                onClick={handleAiAnalyze}
-                className="text-xs font-bold text-indigo-600 hover:text-indigo-800 underline decoration-indigo-200"
-              >
-                再生成する
-              </button>
-            )}
-          </div>
-
-          {aiLoading && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-pulse">
-              <div className="h-32 bg-indigo-100/50 rounded-xl"></div>
-              <div className="h-32 bg-indigo-100/50 rounded-xl"></div>
-            </div>
-          )}
-
-          {aiAnalysis && !aiLoading && (
-            <div className="space-y-4">
-              <div className="bg-white/60 backdrop-blur-sm p-4 rounded-xl border border-indigo-100/50 italic text-indigo-900 font-medium leading-relaxed whitespace-pre-wrap">
-                {aiAnalysis.general_comment}
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100">
-                  <h4 className="text-xs font-black text-emerald-700 uppercase tracking-widest mb-3 flex items-center gap-2">
-                    <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
-                    組織のいいところ
-                  </h4>
-                  <ul className="space-y-2">
-                    {aiAnalysis.strengths.map((s, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm text-emerald-900 font-bold">
-                        <span className="text-emerald-400">✓</span>
-                        {s}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="bg-rose-50/50 p-4 rounded-xl border border-rose-100">
-                  <h4 className="text-xs font-black text-rose-700 uppercase tracking-widest mb-3 flex items-center gap-2">
-                    <span className="w-2 h-2 bg-rose-500 rounded-full"></span>
-                    現状の課題点
-                  </h4>
-                  <ul className="space-y-2">
-                    {aiAnalysis.weaknesses.map((w, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm text-rose-900 font-bold">
-                        <span className="text-rose-400">!</span>
-                        {w}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {!aiAnalysis && !aiLoading && (
-            <div className="text-center py-6 border-2 border-dashed border-indigo-100 rounded-xl">
-              <p className="text-sm text-indigo-400 font-bold">集計された数値から、AIが組織の状態を端的に分析します</p>
-            </div>
-          )}
-        </div>
-
         {/* KPI・信号表示 */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5 md:p-6">
           <div className="flex flex-col md:flex-row gap-6 md:gap-8 items-center md:items-stretch">
@@ -903,6 +809,55 @@ export default function ClientSummary() {
               );
             })()}
           </div>
+        </div>
+        {/* コメント取得（AI） */}
+        <div className="border border-gray-200 rounded-lg p-4 bg-white">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-bold text-gray-500">コメント取得（AI）</h3>
+            {!aiAnalysis && (
+              <button
+                onClick={handleAiAnalyze}
+                disabled={data.isCurrentSurvey || aiLoading}
+                className="text-xs px-3 py-1 border border-gray-300 rounded text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+              >
+                {aiLoading ? '取得中...' : '取得する'}
+              </button>
+            )}
+          </div>
+          {data.isCurrentSurvey && !aiAnalysis && (
+            <p className="text-xs text-gray-400">アンケート実施期間中は取得できません。期間終了後に取得してください。</p>
+          )}
+          {!data.isCurrentSurvey && !aiAnalysis && !aiLoading && (
+            <p className="text-xs text-gray-400">AIがアンケート結果を要約・分析します（1回のみ）。</p>
+          )}
+          {aiLoading && (
+            <p className="text-xs text-gray-400 animate-pulse">分析中...</p>
+          )}
+          {aiAnalysis && (
+            <div className="space-y-3 text-sm mt-1">
+              <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">{aiAnalysis.general_comment}</p>
+              {aiAnalysis.strengths.length > 0 && (
+                <div>
+                  <p className="text-xs font-bold text-gray-500 mb-1">いいところ</p>
+                  <ul className="space-y-1">
+                    {aiAnalysis.strengths.map((s, i) => (
+                      <li key={i} className="text-xs text-gray-600 flex gap-1"><span className="text-gray-400">✓</span>{s}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {aiAnalysis.weaknesses.length > 0 && (
+                <div>
+                  <p className="text-xs font-bold text-gray-500 mb-1">課題点</p>
+                  <ul className="space-y-1">
+                    {aiAnalysis.weaknesses.map((w, i) => (
+                      <li key={i} className="text-xs text-gray-600 flex gap-1"><span className="text-gray-400">!</span>{w}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </main>
     </div>
