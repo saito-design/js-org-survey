@@ -289,6 +289,17 @@ function buildRoleQuestionCounts(questions: Question[]) {
 }
 
 /**
+ * respondents.json の role 表記を正規化（PART_TIME / PARTTIME → PA）
+ */
+function normalizeRole(role: string): 'MANAGER' | 'STAFF' | 'PA' {
+  if (role === 'PART_TIME' || role === 'PARTTIME') return 'PA';
+  if (role === 'MANAGER') return 'MANAGER';
+  if (role === 'STAFF') return 'STAFF';
+  if (role === 'PA') return 'PA';
+  return 'STAFF';
+}
+
+/**
  * 役職ごとの期待設問IDセットを作成
  */
 function buildExpectedQuestionIdSetByRole(questions: Question[]) {
@@ -319,9 +330,9 @@ export function computeResponseRate(
   questions: Question[],
   filterRole?: 'MANAGER' | 'STAFF' | 'PA'
 ): ResponseRate {
-  // 対象者（activeのみ + 役職フィルタ）
+  // 対象者（activeのみ + 役職フィルタ）。role を正規化して比較
   const targetRespondents = filterRole
-    ? respondents.filter(r => r.active && r.role === filterRole)
+    ? respondents.filter(r => r.active && normalizeRole(r.role) === filterRole)
     : respondents.filter(r => r.active);
 
   const totalRespondents = targetRespondents.length;
@@ -333,12 +344,12 @@ export function computeResponseRate(
   // 期待回答件数
   let totalExpected = 0;
   for (const r of targetRespondents) {
-    totalExpected += qCountByRole[r.role] ?? 0;
+    totalExpected += qCountByRole[normalizeRole(r.role)] ?? 0;
   }
 
-  // active対象者の role マップ
+  // active対象者の role マップ（正規化済み）
   const targetRoleMap = new Map<string, 'MANAGER' | 'STAFF' | 'PA'>();
-  for (const r of targetRespondents) targetRoleMap.set(r.respondent_id, r.role);
+  for (const r of targetRespondents) targetRoleMap.set(r.respondent_id, normalizeRole(r.role));
 
   // 実回答件数（重複排除：respondent_id + question_id）
   const answeredPair = new Set<string>();
@@ -523,7 +534,8 @@ export function generateSurveySummary(
 
   // 有効回答者数（active対象者のうち、期待設問に1つでも回答した人）
   const activeRespondents = respondents.filter(r => r.active);
-  const activeMap = new Map(activeRespondents.map(r => [r.respondent_id, r.role] as const));
+  // role を正規化（PART_TIME → PA など）してマップを構築
+  const activeMap = new Map(activeRespondents.map(r => [r.respondent_id, normalizeRole(r.role)] as const));
 
   // 期待設問IDセット（役職別）
   const expectedQSetByRole = buildExpectedQuestionIdSetByRole(questions);
