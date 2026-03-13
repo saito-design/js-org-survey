@@ -489,8 +489,15 @@ export function generateSurveySummary(
   elements: Element[],
   factors: Factor[]
 ): SurveySummary {
+  // PARTTIME-Q* → PA-Q* に正規化（Excelインポートデータの互換性）
+  const normalizedResponses = responses.map(r =>
+    r.question_id.startsWith('PARTTIME-')
+      ? { ...r, question_id: r.question_id.replace(/^PARTTIME-/, 'PA-') }
+      : r
+  );
+
   // 「No.〇〇に同じ」マッピングを適用
-  const mappedResponses = applyQuestionMapping(responses, respondents);
+  const mappedResponses = applyQuestionMapping(normalizedResponses, respondents);
 
   // 要素スコア
   const elementScores = computeElementScores(mappedResponses, questions, elements);
@@ -512,7 +519,7 @@ export function generateSurveySummary(
   const weaknesses = getWeaknesses(elementScores, 3);
 
   // 回答率
-  const responseRate = computeResponseRate(responses, respondents, questions);
+  const responseRate = computeResponseRate(normalizedResponses, respondents, questions);
 
   // 有効回答者数（active対象者のうち、期待設問に1つでも回答した人）
   const activeRespondents = respondents.filter(r => r.active);
@@ -522,7 +529,7 @@ export function generateSurveySummary(
   const expectedQSetByRole = buildExpectedQuestionIdSetByRole(questions);
 
   const nSet = new Set<string>();
-  for (const res of responses) {
+  for (const res of normalizedResponses) {
     if (res.value == null) continue;
     const role = activeMap.get(res.respondent_id);
     if (!role) continue;
