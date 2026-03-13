@@ -153,6 +153,18 @@ export async function GET(req: NextRequest) {
       return { respondents: buildSyntheticRespondents(allRespData), usedSynthetic: true };
     };
 
+    // store_code セグメント用: office フィルタを除いた respondent フィルタ（ランキング正確化）
+    const filterRespondentForStore = (r: Respondent) => {
+      const ou = orgUnitMap.get(r.store_code);
+      if (!ou) return false;
+      if (filterHq !== 'all' && ou.hq !== filterHq) return false;
+      if (filterDept !== 'all' && ou.dept !== filterDept) return false;
+      if (filterSection !== 'all' && ou.section !== filterSection) return false;
+      if (filterArea !== 'all' && ou.area !== filterArea) return false;
+      if (filterBusinessType !== 'all' && ou.business_type !== filterBusinessType) return false;
+      return true; // office フィルタは除外
+    };
+
     // 期間データ集計ヘルパー
     const getPeriodData = async (id: string | undefined): Promise<PeriodData | undefined> => {
       if (!id) return undefined;
@@ -167,14 +179,32 @@ export async function GET(req: NextRequest) {
 
       if (filteredResponses.length === 0) return undefined;
 
-      const summary = generateSurveySummary(id, filteredResponses, workingRespondents, questions, elements, factors);
+      // PARTTIME-Q* → PA-Q* に正規化
+      const normalizeQId = (r: SurveyResponse) =>
+        r.question_id.startsWith('PARTTIME-')
+          ? { ...r, question_id: r.question_id.replace(/^PARTTIME-/, 'PA-') }
+          : r;
+
+      const normalizedResponses = filteredResponses.map(normalizeQId);
+
+      const summary = generateSurveySummary(id, normalizedResponses, workingRespondents, questions, elements, factors);
 
       const storeNameMap = new Map<string, string>();
       orgUnits.forEach(ou => storeNameMap.set(ou.store_code, ou.store_name));
 
+      // store_code セグメントかつ office フィルタ適用中 → 全事業所でセグメント計算（正確なランキングのため）
+      let segRespondents = workingRespondents;
+      let segResponses = normalizedResponses;
+      if (segmentBy === 'store_code' && filterOffice !== 'all' && !usedSynthetic) {
+        const broadRespondents = allRespondents.filter(filterRespondentForStore);
+        const broadIds = new Set(broadRespondents.map(r => r.respondent_id));
+        segRespondents = broadRespondents;
+        segResponses = allRespData.filter(res => broadIds.has(res.respondent_id)).map(normalizeQId);
+      }
+
       const segmentScores = computeSegmentScores(
-        filteredResponses,
-        workingRespondents,
+        segResponses,
+        segRespondents,
         questions,
         elements,
         factors,
@@ -232,15 +262,21 @@ export async function GET(req: NextRequest) {
 
         const { respondents: workingRespondents } = resolveRespondents(combined);
         const workingIds = new Set(workingRespondents.map(r => r.respondent_id));
-        const filtered = workingRespondents === buildSyntheticRespondents(combined)
+        const rawFiltered = workingRespondents === buildSyntheticRespondents(combined)
           ? combined
           : combined.filter(res => workingIds.has(res.respondent_id));
+        // PARTTIME-Q* → PA-Q* に正規化
+        const normalizedFiltered = (rawFiltered.length > 0 ? rawFiltered : combined).map(r =>
+          r.question_id.startsWith('PARTTIME-')
+            ? { ...r, question_id: r.question_id.replace(/^PARTTIME-/, 'PA-') }
+            : r
+        );
 
-        const summary = generateSurveySummary('overall', filtered.length > 0 ? filtered : combined, workingRespondents, questions, elements, factors);
+        const summary = generateSurveySummary('overall', normalizedFiltered, workingRespondents, questions, elements, factors);
         const storeNameMap = new Map<string, string>();
         orgUnits.forEach(ou => storeNameMap.set(ou.store_code, ou.store_name));
         const segmentScores = computeSegmentScores(
-          filtered.length > 0 ? filtered : combined,
+          normalizedFiltered,
           workingRespondents, questions, elements, factors, segmentBy,
           (key) => (segmentBy === 'store_code' ? storeNameMap.get(key) || key : key)
         );

@@ -203,6 +203,15 @@ export interface AiAnalysis {
   strengths: string[];
   weaknesses: string[];
   general_comment: string;
+  action_items?: string[];
+}
+
+export interface AiTask {
+  id: string;
+  text: string;
+  survey_id: string;
+  created_at: string;
+  status: 'pending' | 'done';
 }
 
 export interface SurveySummary {

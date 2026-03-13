@@ -18,6 +18,57 @@ const KEY_QUESTIONS = [
   { mgmt_no: 7, category: '効果的チーム', concept: 'F3', questions: { MANAGER: 'MANAGER-Q65', STAFF: null, PA: null } },
 ];
 
+/** KEY_QUESTION の設問ID から element_id を導出 (例: 'MANAGER-Q29' → '29') */
+function getKqElementId(qId: string | null | undefined): string | null {
+  if (!qId) return null;
+  const m = qId.match(/-Q(\d+)$/);
+  return m ? String(parseInt(m[1], 10)) : null;
+}
+
+/**
+ * セグメント別の elementScores から KEY_QUESTION の正しいスコアを取得する。
+ * - role セグメント: そのロール固有の element_id を使用
+ * - store_code / age / その他: 全ロールの element_id を平均（複数ある場合）
+ */
+function getKqScore(
+  kq: (typeof KEY_QUESTIONS)[0],
+  segmentType: string,
+  segmentKey: string,
+  elementScores: Record<string, any>
+): { mean: number | null; distribution: { top2: number; mid: number; bottom2: number; n: number } } | null {
+  let eids: string[];
+
+  if (segmentType === 'role') {
+    const role = (segmentKey === 'PART_TIME' ? 'PA' : segmentKey) as 'MANAGER' | 'STAFF' | 'PA';
+    const eid = getKqElementId(kq.questions[role]);
+    if (!eid) return null;
+    eids = [eid];
+  } else {
+    const ids = new Set<string>();
+    for (const qId of Object.values(kq.questions)) {
+      const eid = getKqElementId(qId);
+      if (eid) ids.add(eid);
+    }
+    eids = Array.from(ids);
+  }
+
+  const valid = eids.map(id => elementScores[id]).filter(
+    (es): es is { mean: number; distribution: any } => es?.mean != null
+  );
+  if (valid.length === 0) return null;
+
+  const mean = valid.reduce((s, es) => s + es.mean, 0) / valid.length;
+  const totalN = valid.reduce((s, es) => s + (es.distribution?.n ?? 0), 0);
+  let distribution = { top2: 0, mid: 0, bottom2: 0, n: 0 };
+  if (totalN > 0) {
+    const top2 = valid.reduce((s, es) => s + (es.distribution?.top2 ?? 0) * (es.distribution?.n ?? 0), 0) / totalN;
+    const mid = valid.reduce((s, es) => s + (es.distribution?.mid ?? 0) * (es.distribution?.n ?? 0), 0) / totalN;
+    const bottom2 = valid.reduce((s, es) => s + (es.distribution?.bottom2 ?? 0) * (es.distribution?.n ?? 0), 0) / totalN;
+    distribution = { top2, mid, bottom2, n: totalN };
+  }
+  return { mean, distribution };
+}
+
 /**
  * ローディングスピナー
  */
@@ -252,7 +303,9 @@ export default function ClientSummary() {
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
-  const [aiAnalysis, setAiAnalysis] = useState<{ strengths: string[]; weaknesses: string[]; general_comment: string } | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState<{ strengths: string[]; weaknesses: string[]; general_comment: string; action_items?: string[] } | null>(null);
+  const [checkedActions, setCheckedActions] = useState<Set<number>>(new Set());
+  const [taskSaveStatus, setTaskSaveStatus] = useState<'idle' | 'saving' | 'done' | 'error'>('idle');
 
   // パラメータ変更時にURLを更新
   const updateParams = (updates: Partial<typeof params>) => {
@@ -372,12 +425,33 @@ export default function ClientSummary() {
       }
       const analysis = await res.json();
       setAiAnalysis(analysis);
+      setCheckedActions(new Set());
+      setTaskSaveStatus('idle');
     } catch (err) {
       console.error(err);
       const message = err instanceof Error ? err.message : 'Unknown error';
       alert(`AI分析の実行中にエラーが発生しました。\n\n理由: ${message}\n\nAPIキーの設定やクォータ制限を確認してください。`);
     } finally {
       setAiLoading(false);
+    }
+  };
+
+  const handleSaveTasks = async () => {
+    if (!aiAnalysis?.action_items || checkedActions.size === 0) return;
+    const texts = Array.from(checkedActions).map(i => aiAnalysis.action_items![i]);
+    setTaskSaveStatus('saving');
+    try {
+      const res = await fetch('/api/admin/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ texts, survey_id: current?.summary.surveyId || '' }),
+      });
+      if (!res.ok) throw new Error('保存に失敗しました');
+      setTaskSaveStatus('done');
+      setCheckedActions(new Set());
+    } catch (err) {
+      console.error(err);
+      setTaskSaveStatus('error');
     }
   };
 
@@ -410,11 +484,19 @@ export default function ClientSummary() {
             </div>
             <p className="hidden md:block text-sm text-gray-500 mt-0.5 font-medium italic">組織のコンディションを定量的に把握し、対話を促進します</p>
           </div>
-          {data.is_owner && (
-            <button onClick={handleExport} disabled={exporting} className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-bold hover:bg-blue-700 disabled:opacity-50 shadow-sm">
-              {exporting ? '処理中...' : 'CSVダウンロード'}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { const cid = pathname.split('/')[1]; router.push(`/${cid}/admin/tasks`); }}
+              className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-xs font-bold hover:bg-gray-200 shadow-sm border border-gray-200"
+            >
+              タスク管理
             </button>
-          )}
+            {data.is_owner && (
+              <button onClick={handleExport} disabled={exporting} className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-bold hover:bg-blue-700 disabled:opacity-50 shadow-sm">
+                {exporting ? '処理中...' : 'CSVダウンロード'}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* フィルタスライサー */}
@@ -648,74 +730,79 @@ export default function ClientSummary() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {KEY_QUESTIONS.map((kq) => {
-                  // 全体平均データ
-                  const oaEs = overallAvg?.summary?.elementScores?.find((e: any) => e.element_id === String(kq.mgmt_no));
+                {(() => {
+                  // 全体平均の elementScores を配列 → Record に変換（ループ外で1回だけ）
+                  const oaEsMap: Record<string, any> = {};
+                  overallAvg?.summary?.elementScores?.forEach((e: any) => { oaEsMap[e.element_id] = e; });
 
-                  return (
-                    <tr key={kq.mgmt_no} className="hover:bg-gray-50/50 transition-colors group">
-                      <td className={`px-3 py-2 font-bold sticky left-0 border-r border-gray-200 text-xs ${
-                        kq.concept === 'F1' ? 'bg-blue-50/50 text-blue-700 group-hover:bg-blue-100/50' :
-                        kq.concept === 'F2' ? 'bg-emerald-50/50 text-emerald-700 group-hover:bg-emerald-100/50' :
-                        'bg-purple-50/50 text-purple-700 group-hover:bg-purple-100/50'
-                      }`}>
-                        {kq.category}
-                      </td>
-                      {current.segmentScores?.map(seg => {
-                        const isSmallN = seg.n < 5;
-                        if (isSmallN) return <td key={seg.segmentKey} className="px-2 py-2 text-center text-gray-300 bg-gray-50/30 text-xs">—</td>;
+                  return KEY_QUESTIONS.map((kq) => {
+                    // 全体平均スコア（全ロール平均）
+                    const oaScore = getKqScore(kq, 'store_code', 'all', oaEsMap);
 
-                        // element_id = mgmt_no で取得
-                        const es = (seg.elementScores as any)?.[String(kq.mgmt_no)];
-                        const val = es?.mean ?? null;
-                        const dist = es?.distribution;
-                        const bottom2 = dist?.bottom2 ?? null;
+                    return (
+                      <tr key={kq.mgmt_no} className="hover:bg-gray-50/50 transition-colors group">
+                        <td className={`px-3 py-2 font-bold sticky left-0 border-r border-gray-200 text-xs ${
+                          kq.concept === 'F1' ? 'bg-blue-50/50 text-blue-700 group-hover:bg-blue-100/50' :
+                          kq.concept === 'F2' ? 'bg-emerald-50/50 text-emerald-700 group-hover:bg-emerald-100/50' :
+                          'bg-purple-50/50 text-purple-700 group-hover:bg-purple-100/50'
+                        }`}>
+                          {kq.category}
+                        </td>
+                        {current.segmentScores?.map(seg => {
+                          const isSmallN = seg.n < 5;
+                          if (isSmallN) return <td key={seg.segmentKey} className="px-2 py-2 text-center text-gray-300 bg-gray-50/30 text-xs">—</td>;
 
-                        // 前回データ
-                        const p1Es = prev1?.segmentScores?.find((s: any) => s.segmentKey === seg.segmentKey)?.elementScores?.[String(kq.mgmt_no)];
+                          // セグメント種別に応じた正しい element_id でスコア取得
+                          const esScore = getKqScore(kq, params.segment, seg.segmentKey, seg.elementScores as Record<string, any>);
+                          const val = esScore?.mean ?? null;
+                          const dist = esScore?.distribution;
+                          const bottom2 = dist?.bottom2 ?? null;
 
-                        let displayValue = val?.toFixed(2) ?? '-';
-                        let cellClass = "";
 
-                        if (params.mode === 'diff' && heatmapTarget) {
-                          const targetEs = heatmapTarget.segmentScores?.find((s: any) => s.segmentKey === seg.segmentKey)?.elementScores?.[String(kq.mgmt_no)];
-                          const targetVal = targetEs?.mean ?? null;
-                          if (val != null && targetVal != null) {
-                            const diff = val - targetVal;
-                            displayValue = (diff > 0 ? '+' : '') + diff.toFixed(2);
-                            cellClass = diff > 0.1 ? 'bg-green-100 text-green-900' : diff < -0.1 ? 'bg-red-100 text-red-900' : 'bg-gray-100 text-gray-600';
+                          let displayValue = val?.toFixed(2) ?? '-';
+                          let cellClass = "";
+
+                          if (params.mode === 'diff' && heatmapTarget) {
+                            const targetSeg = heatmapTarget.segmentScores?.find((s: any) => s.segmentKey === seg.segmentKey);
+                            const targetScore = targetSeg ? getKqScore(kq, params.segment, seg.segmentKey, targetSeg.elementScores) : null;
+                            const targetVal = targetScore?.mean ?? null;
+                            if (val != null && targetVal != null) {
+                              const diff = val - targetVal;
+                              displayValue = (diff > 0 ? '+' : '') + diff.toFixed(2);
+                              cellClass = diff > 0.1 ? 'bg-green-100 text-green-900' : diff < -0.1 ? 'bg-red-100 text-red-900' : 'bg-gray-100 text-gray-600';
+                            } else {
+                              displayValue = '-';
+                              cellClass = 'bg-gray-50 text-gray-300';
+                            }
                           } else {
-                            displayValue = '-';
-                            cellClass = 'bg-gray-50 text-gray-300';
+                            const signal = getSignal(val, bottom2);
+                            cellClass = getSignalBgClass(signal);
                           }
-                        } else {
-                          const signal = getSignal(val, bottom2);
-                          cellClass = getSignalBgClass(signal);
-                        }
 
-                        const oaDiff = val != null && oaEs?.mean != null ? val - oaEs.mean : null;
+                          const oaDiff = val != null && oaScore?.mean != null ? val - oaScore.mean : null;
 
-                        return (
-                          <td key={seg.segmentKey} className={`px-1 py-1.5 text-center border-r border-gray-50 ${cellClass}`}>
-                            <div className="flex flex-col items-center gap-0.5">
-                              <span className="font-black text-sm leading-none">{displayValue}</span>
-                              {params.mode === 'abs' && oaDiff != null && (
-                                <span className={`text-[8px] leading-none ${oaDiff > 0 ? 'text-green-700' : oaDiff < 0 ? 'text-red-700' : 'text-gray-400'}`}>
-                                  {oaDiff > 0 ? '+' : ''}{oaDiff.toFixed(1)}
-                                </span>
-                              )}
-                              {bottom2 != null && (
-                                <span className={`text-[8px] leading-none ${bottom2 >= 0.1 ? 'text-rose-600 font-bold' : 'text-gray-400'}`}>
-                                  {Math.round(bottom2 * 100)}%
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
+                          return (
+                            <td key={seg.segmentKey} className={`px-1 py-1.5 text-center border-r border-gray-50 ${cellClass}`}>
+                              <div className="flex flex-col items-center gap-0.5">
+                                <span className="font-black text-sm leading-none">{displayValue}</span>
+                                {params.mode === 'abs' && oaDiff != null && (
+                                  <span className={`text-[8px] leading-none ${oaDiff > 0 ? 'text-green-700' : oaDiff < 0 ? 'text-red-700' : 'text-gray-400'}`}>
+                                    {oaDiff > 0 ? '+' : ''}{oaDiff.toFixed(1)}
+                                  </span>
+                                )}
+                                {bottom2 != null && (
+                                  <span className={`text-[8px] leading-none ${bottom2 >= 0.1 ? 'text-rose-600 font-bold' : 'text-gray-400'}`}>
+                                    {Math.round(bottom2 * 100)}%
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  });
+                })()}
               </tbody>
             </table>
           </div>
@@ -854,6 +941,42 @@ export default function ClientSummary() {
                       <li key={i} className="text-xs text-gray-600 flex gap-1"><span className="text-gray-400">!</span>{w}</li>
                     ))}
                   </ul>
+                </div>
+              )}
+              {aiAnalysis.action_items && aiAnalysis.action_items.length > 0 && (
+                <div className="border-t border-gray-100 pt-3">
+                  <p className="text-xs font-bold text-gray-500 mb-2">アクション（取り組みたいものにチェック）</p>
+                  <ul className="space-y-2">
+                    {aiAnalysis.action_items.map((item, i) => (
+                      <li key={i} className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          id={`action-${i}`}
+                          checked={checkedActions.has(i)}
+                          onChange={e => {
+                            const next = new Set(checkedActions);
+                            if (e.target.checked) next.add(i); else next.delete(i);
+                            setCheckedActions(next);
+                            setTaskSaveStatus('idle');
+                          }}
+                          className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300 text-teal-600 cursor-pointer flex-shrink-0"
+                        />
+                        <label htmlFor={`action-${i}`} className="text-xs text-gray-700 cursor-pointer leading-snug">{item}</label>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex items-center gap-3 mt-3">
+                    <button
+                      onClick={handleSaveTasks}
+                      disabled={checkedActions.size === 0 || taskSaveStatus === 'saving' || taskSaveStatus === 'done'}
+                      className="text-xs px-3 py-1.5 bg-teal-600 text-white rounded hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                    >
+                      {taskSaveStatus === 'saving' ? '登録中...' : taskSaveStatus === 'done' ? '登録済み ✓' : `チェック中（${checkedActions.size}）をタスクに登録`}
+                    </button>
+                    {taskSaveStatus === 'error' && (
+                      <span className="text-xs text-red-500">登録に失敗しました</span>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
