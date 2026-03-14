@@ -6,6 +6,13 @@ import { SummaryResponse } from '@/app/api/admin/summary/route';
 import { FactorScore, ElementScore, SurveySummary, IndicatorScore, CategoryScore } from '@/lib/types';
 import { normalizeLabel } from '@/lib/utils';
 import { getSignal, getSignalBgClass, getSignalLabel } from '@/lib/signal';
+import questionIdMapping from '../../../../../questions/question_id_mapping.json';
+
+// mgmt_no → 代表設問テキスト のルックアップ
+const QUESTION_TEXT_MAP: Record<string, string> = Object.fromEntries(
+  (questionIdMapping as Array<{ mgmt_no: number; question_text: string }>)
+    .map(m => [String(m.mgmt_no), m.question_text])
+);
 
 // 7つのキー設問（管理No 1〜7）- question_id_mapping.jsonと完全一致
 const KEY_QUESTIONS = [
@@ -597,7 +604,7 @@ export default function ClientSummary() {
                         </div>
                       </>
                     )}
-                    <div className="text-[9px] text-amber-500/70 mt-1">※n&lt;5の事業所は対象外</div>
+                    <div className="text-[9px] text-amber-500/70 mt-1">※ランキングはn&lt;5の事業所を除外</div>
                   </div>
                 );
               })()}
@@ -774,11 +781,11 @@ export default function ClientSummary() {
                           kq.concept === 'F2' ? 'bg-emerald-50/50 text-emerald-700 group-hover:bg-emerald-100/50' :
                           'bg-purple-50/50 text-purple-700 group-hover:bg-purple-100/50'
                         }`}>
-                          {kq.category}
+                          <Tooltip content={<span>{QUESTION_TEXT_MAP[String(kq.mgmt_no)]}</span>}>
+                            {kq.category}
+                          </Tooltip>
                         </td>
                         {current.segmentScores?.map(seg => {
-                          const isSmallN = seg.n < 5;
-                          if (isSmallN) return <td key={seg.segmentKey} className="px-2 py-2 text-center text-gray-300 bg-gray-50/30 text-xs">—</td>;
 
                           // セグメント種別に応じた正しい element_id でスコア取得
                           const esScore = getKqScore(kq, params.segment, seg.segmentKey, seg.elementScores as Record<string, any>);
@@ -876,7 +883,9 @@ export default function ClientSummary() {
                         <div className="flex justify-between items-center mb-1">
                           <span className={`font-bold text-gray-800 ${idx === 0 ? 'text-base' : 'text-sm'}`}>
                             <span className="text-blue-500 mr-1">#{idx + 1}</span>
-                            {normalizeLabel(item.element_name)}
+                            <Tooltip content={<span>{QUESTION_TEXT_MAP[item.element_id]}</span>}>
+                              {normalizeLabel(item.element_name)}
+                            </Tooltip>
                           </span>
                           <span className={`font-black text-blue-700 ${idx === 0 ? 'text-2xl' : 'text-lg'}`}>{item.mean?.toFixed(2)}</span>
                         </div>
@@ -916,7 +925,9 @@ export default function ClientSummary() {
                         <div className="flex justify-between items-center mb-1">
                           <span className={`font-bold text-gray-800 ${idx === 0 ? 'text-base' : 'text-sm'}`}>
                             <span className="text-red-500 mr-1">#{idx + 1}</span>
-                            {normalizeLabel(item.element_name)}
+                            <Tooltip content={<span>{QUESTION_TEXT_MAP[item.element_id]}</span>}>
+                              {normalizeLabel(item.element_name)}
+                            </Tooltip>
                           </span>
                           <span className={`font-black text-red-700 ${idx === 0 ? 'text-2xl' : 'text-lg'}`}>{item.mean?.toFixed(2)}</span>
                         </div>
