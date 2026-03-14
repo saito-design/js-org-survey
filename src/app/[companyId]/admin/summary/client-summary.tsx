@@ -11,9 +11,9 @@ import { getSignal, getSignalBgClass, getSignalLabel } from '@/lib/signal';
 const KEY_QUESTIONS = [
   { mgmt_no: 1, category: '会社の満足度', concept: 'F1', questions: { MANAGER: 'MANAGER-Q29', STAFF: 'STAFF-Q29', PA: 'PA-Q22' } },
   { mgmt_no: 2, category: '職務満足度', concept: 'F1', questions: { MANAGER: 'MANAGER-Q28', STAFF: 'STAFF-Q28', PA: 'PA-Q21' } },
-  { mgmt_no: 3, category: '会社の将来像への期待', concept: 'F2', questions: { MANAGER: 'MANAGER-Q18', STAFF: null, PA: null } },
+  { mgmt_no: 3, category: '会社の将来像への期待', concept: 'F2', questions: { MANAGER: 'MANAGER-Q18', STAFF: 'STAFF-Q18', PA: 'PA-Q15' } },
   { mgmt_no: 4, category: '顧客視点意識', concept: 'F2', questions: { MANAGER: 'MANAGER-Q49', STAFF: 'STAFF-Q46', PA: 'PA-Q33' } },
-  { mgmt_no: 5, category: '貢献意欲', concept: 'F3', questions: { MANAGER: 'MANAGER-Q27', STAFF: null, PA: null } },
+  { mgmt_no: 5, category: '貢献意欲', concept: 'F3', questions: { MANAGER: 'MANAGER-Q27', STAFF: 'STAFF-Q27', PA: 'PA-Q20' } },
   { mgmt_no: 6, category: '勤続意思', concept: 'F3', questions: { MANAGER: 'MANAGER-Q26', STAFF: 'STAFF-Q26', PA: null } },
   { mgmt_no: 7, category: '効果的チーム', concept: 'F3', questions: { MANAGER: 'MANAGER-Q65', STAFF: null, PA: null } },
 ];
@@ -558,17 +558,45 @@ export default function ClientSummary() {
                 <DeltaDisplay current={current.summary.overallScore} target={overallAvg?.summary.overallScore} label="Δ全体平均" />
                 <DeltaDisplay current={current.summary.overallScore} target={prev1?.summary.overallScore} label="Δ前回" />
               </div>
-              {/* 選択範囲内ランキング（事業所選択時） */}
-              {params.office !== 'all' && params.segment === 'store_code' && (() => {
-                const ranking = calcStoreRanking(current.segmentScores as SegmentScore[], params.office);
-                if (!ranking.overall) return null;
+              {/* 母数スコープ表示（store_codeセグメント時は常時） */}
+              {params.segment === 'store_code' && (() => {
+                // スコープラベル
+                const scopeParts: string[] = [];
+                if (params.hq !== 'all') scopeParts.push(params.hq);
+                if (params.dept !== 'all') scopeParts.push(params.dept);
+                if (params.section !== 'all') scopeParts.push(params.section);
+                if (params.area !== 'all') scopeParts.push(params.area);
+                if (params.business_type !== 'all') scopeParts.push(params.business_type);
+                const scopeLabel = scopeParts.length > 0 ? scopeParts.join(' / ') : '全社';
+
+                // n>=5 の事業所数（ランキング母数）
+                const validStores = (current.segmentScores as SegmentScore[] | undefined)?.filter(s => s.n >= 5) ?? [];
+                const totalStores = validStores.length;
+
+                // 事業所選択時のランキング
+                const ranking = params.office !== 'all'
+                  ? calcStoreRanking(current.segmentScores as SegmentScore[], params.office)
+                  : null;
+
                 return (
                   <div className="mt-3 px-4 py-2 bg-amber-50/80 rounded-xl border border-amber-200">
-                    <div className="text-[10px] text-amber-600 font-bold uppercase tracking-wider mb-1">選択範囲内順位</div>
-                    <div className="flex items-baseline gap-1 justify-center">
-                      <span className="text-2xl font-black text-amber-700">{ranking.overall.rank}</span>
-                      <span className="text-sm text-amber-500 font-bold">/ {ranking.overall.total}</span>
+                    <div className="text-[10px] text-amber-600 font-bold uppercase tracking-wider mb-1">対象範囲</div>
+                    <div className="text-[11px] font-black text-amber-700 text-center">{scopeLabel}</div>
+                    <div className="text-[11px] text-amber-600 text-center mt-0.5">
+                      <span className="font-black">{totalStores}</span>
+                      <span className="font-bold text-amber-500"> 事業所</span>
                     </div>
+                    {ranking?.overall && (
+                      <>
+                        <div className="border-t border-amber-200 mt-2 pt-2">
+                          <div className="text-[10px] text-amber-600 font-bold text-center mb-1">選択範囲内順位</div>
+                          <div className="flex items-baseline gap-1 justify-center">
+                            <span className="text-2xl font-black text-amber-700">{ranking.overall.rank}</span>
+                            <span className="text-sm text-amber-500 font-bold">/ {ranking.overall.total}</span>
+                          </div>
+                        </div>
+                      </>
+                    )}
                     <div className="text-[9px] text-amber-500/70 mt-1">※n&lt;5の事業所は対象外</div>
                   </div>
                 );
@@ -723,7 +751,7 @@ export default function ClientSummary() {
                   <th className="px-3 py-2 sticky left-0 z-10 bg-gray-50 border-r border-gray-200 min-w-[140px] font-bold text-gray-400 uppercase text-[10px]">Indicator</th>
                   {current.segmentScores?.map(seg => (
                     <th key={seg.segmentKey} className="px-2 py-2 text-center border-r border-gray-100 min-w-[70px] font-bold text-[10px] leading-tight text-gray-600">
-                      <div className="truncate max-w-[80px]" title={seg.segmentName}>{normalizeLabel(seg.segmentName)}</div>
+                      <div className="truncate max-w-[80px] text-center mx-auto" title={seg.segmentName}>{normalizeLabel(seg.segmentName)}</div>
                       <div className={`text-[9px] font-mono ${seg.n < 5 ? 'text-red-400' : 'text-gray-400'}`}>n={seg.n}</div>
                     </th>
                   ))}
@@ -781,13 +809,23 @@ export default function ClientSummary() {
 
                           const oaDiff = val != null && oaScore?.mean != null ? val - oaScore.mean : null;
 
+                          // 前回差
+                          const p1Seg = prev1?.segmentScores?.find((s: any) => s.segmentKey === seg.segmentKey);
+                          const p1Score = p1Seg ? getKqScore(kq, params.segment, seg.segmentKey, p1Seg.elementScores as Record<string, any>) : null;
+                          const p1Diff = val != null && p1Score?.mean != null ? val - p1Score.mean : null;
+
                           return (
                             <td key={seg.segmentKey} className={`px-1 py-1.5 text-center border-r border-gray-50 ${cellClass}`}>
                               <div className="flex flex-col items-center gap-0.5">
                                 <span className="font-black text-sm leading-none">{displayValue}</span>
                                 {params.mode === 'abs' && oaDiff != null && (
                                   <span className={`text-[8px] leading-none ${oaDiff > 0 ? 'text-green-700' : oaDiff < 0 ? 'text-red-700' : 'text-gray-400'}`}>
-                                    {oaDiff > 0 ? '+' : ''}{oaDiff.toFixed(1)}
+                                    全{oaDiff > 0 ? '+' : ''}{oaDiff.toFixed(1)}
+                                  </span>
+                                )}
+                                {params.mode === 'abs' && p1Diff != null && (
+                                  <span className={`text-[8px] leading-none ${p1Diff > 0 ? 'text-blue-600' : p1Diff < 0 ? 'text-orange-500' : 'text-gray-400'}`}>
+                                    前{p1Diff > 0 ? '+' : ''}{p1Diff.toFixed(1)}
                                   </span>
                                 )}
                                 {bottom2 != null && (

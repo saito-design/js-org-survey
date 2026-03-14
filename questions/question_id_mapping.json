@@ -24,7 +24,7 @@
     "note": "",
     "MANAGER": "MANAGER-Q18",
     "STAFF": "STAFF-Q18",
-    "PA": null
+    "PA": "PA-Q15"
   },
   {
     "mgmt_no": 4,
@@ -42,7 +42,7 @@
     "note": "",
     "MANAGER": "MANAGER-Q27",
     "STAFF": "STAFF-Q27",
-    "PA": "PA-Q27"
+    "PA": "PA-Q20"
   },
   {
     "mgmt_no": 6,
