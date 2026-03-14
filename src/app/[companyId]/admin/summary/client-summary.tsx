@@ -218,9 +218,9 @@ function DeltaDisplay({ current, target, label }: { current?: number | null, tar
   const sign = diff > 0 ? '+' : diff < 0 ? '' : '±';
 
   return (
-    <div className="text-[11px] leading-tight flex items-center gap-1 font-medium">
-      <span className="text-gray-400 min-w-[60px]">{label}:</span>
-      <span className={`font-black ${colorClass}`}>{sign}{diff.toFixed(2)}</span>
+    <div className="text-[11px] leading-tight flex items-center justify-between font-medium">
+      <span className="text-gray-400">{label}:</span>
+      <span className={`font-black tabular-nums ${colorClass}`}>{sign}{diff.toFixed(2)}</span>
     </div>
   );
 }
