@@ -24,6 +24,16 @@ import type {
 } from './types';
 
 // ============================================================
+// 回答判定用ゲート設問（mgmt_no=1: 全役割に必ず存在する設問）
+// この設問に回答していれば「アンケートに参加した」とみなす
+// ============================================================
+export const GATE_QUESTION_BY_ROLE: Record<'MANAGER' | 'STAFF' | 'PA', string> = {
+  MANAGER: 'MANAGER-Q29',
+  STAFF:   'STAFF-Q29',
+  PA:      'PA-Q22',
+};
+
+// ============================================================
 // 「No.〇〇に同じ」マッピング
 // STAFF/PAの場合: Q33→Q37, Q34→Q38, Q35→Q39 にコピー（追加）
 // ============================================================
@@ -320,7 +330,7 @@ function buildExpectedQuestionIdSetByRole(questions: Question[]) {
 
 /**
  * 回答率を計算（人ベース / 設問ベース）
- * - 人ベース：active対象者のうち「期待設問に1つでも回答した人」/ active対象者
+ * - 人ベース：active対象者のうちゲート設問（mgmt_no=1）に回答した人 / active対象者
  * - 設問ベース：実回答件数 / 期待回答件数
  *   期待回答件数 = Σ(対象者数(role) × 設問数(role))
  */
@@ -351,9 +361,10 @@ export function computeResponseRate(
   const targetRoleMap = new Map<string, 'MANAGER' | 'STAFF' | 'PA'>();
   for (const r of targetRespondents) targetRoleMap.set(r.respondent_id, normalizeRole(r.role));
 
-  // 実回答件数（重複排除：respondent_id + question_id）
-  const answeredPair = new Set<string>();
+  // ゲート設問に回答した人をカウント（=アンケートに参加した人）
   const answeredPeople = new Set<string>();
+  // 設問ベース用：全期待設問の回答件数（重複排除）
+  const answeredPair = new Set<string>();
 
   for (const res of responses) {
     if (res.value == null) continue;
@@ -361,13 +372,14 @@ export function computeResponseRate(
     const role = targetRoleMap.get(res.respondent_id);
     if (!role) continue; // active対象者以外は除外
 
-    // その役職で「期待される設問」か？
-    if (!expectedQSetByRole[role].has(res.question_id)) continue;
-
-    const key = `${res.respondent_id}::${res.question_id}`;
-    if (!answeredPair.has(key)) {
-      answeredPair.add(key);
+    // 人ベース：ゲート設問に回答していれば参加とみなす
+    if (res.question_id === GATE_QUESTION_BY_ROLE[role]) {
       answeredPeople.add(res.respondent_id);
+    }
+
+    // 設問ベース：その役職で「期待される設問」の回答をカウント
+    if (expectedQSetByRole[role].has(res.question_id)) {
+      answeredPair.add(`${res.respondent_id}::${res.question_id}`);
     }
   }
 

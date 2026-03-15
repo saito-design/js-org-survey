@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { loadRespondents, loadOrgUnits } from '@/lib/data-fetching';
-import { loadManifest, listSurveyIds } from '@/lib/manifest';
+import { findFileByName } from '@/lib/drive';
+import { loadRespondents, loadOrgUnits, loadResponsesDirect, loadResponses } from '@/lib/data-fetching';
+import { listSurveyIds } from '@/lib/manifest';
+import { GATE_QUESTION_BY_ROLE } from '@/lib/aggregation';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,7 +13,6 @@ export interface RespondentProgress {
   name?: string;
   role: 'MANAGER' | 'STAFF' | 'PA';
   answered: boolean;
-  answered_at?: string;
 }
 
 export interface StoreProgress {
@@ -32,6 +33,12 @@ export interface ProgressResponse {
   stores: StoreProgress[];
 }
 
+function normalizeRole(role: string): 'MANAGER' | 'STAFF' | 'PA' {
+  if (role === 'PART_TIME' || role === 'PARTTIME') return 'PA';
+  if (role === 'MANAGER') return 'MANAGER';
+  return 'STAFF';
+}
+
 export async function GET(req: NextRequest) {
   try {
     const session = await getSession();
@@ -44,24 +51,58 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
 
     // 利用可能な survey_id 一覧
-    const surveyIds = await listSurveyIds(rootId);
+    // RESPONSES_FOLDER_ID が設定されている場合はそちらを優先
+    const responsesFolderId = process.env.RESPONSES_FOLDER_ID;
+    let surveyIds: string[];
+    if (responsesFolderId) {
+      const { listFilesInFolder } = await import('@/lib/drive');
+      const folders = await listFilesInFolder(responsesFolderId, `mimeType='application/vnd.google-apps.folder'`);
+      const pattern = /^\d{4}-\d{2}$/;
+      surveyIds = folders
+        .filter(f => f.name && pattern.test(f.name))
+        .map(f => f.name!)
+        .sort()
+        .reverse();
+    } else {
+      surveyIds = await listSurveyIds(rootId);
+    }
 
-    // デフォルト: 最新の survey_id
     const now = new Date();
     const currentSurveyId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const requestedId = searchParams.get('survey_id') || surveyIds[0] || currentSurveyId;
 
-    // 回答者一覧とマニフェストを並行取得
-    const [respondents, orgUnits, manifestEntries] = await Promise.all([
-      loadRespondents(rootId),
-      loadOrgUnits(rootId),
-      loadManifest(rootId, requestedId),
+    // setup/ から respondents・org_units を取得
+    const setupFolder = await findFileByName('setup', rootId);
+    const setupFolderId = setupFolder?.id || rootId;
+    const recordingFolder = await findFileByName('recording', rootId);
+    const recordingFolderId = recordingFolder?.id || rootId;
+
+    const [respondents, orgUnits] = await Promise.all([
+      loadRespondents(setupFolderId),
+      loadOrgUnits(setupFolderId),
     ]);
 
-    // 回答済み respondent_id のセット
-    const answeredSet = new Map<string, string>(); // respondent_id → updated_at
-    for (const entry of manifestEntries) {
-      answeredSet.set(entry.respondent_id, entry.updated_at);
+    // 該当サーベイ期の回答データを読み込む
+    let responses: Awaited<ReturnType<typeof loadResponsesDirect>> = [];
+    try {
+      if (responsesFolderId) {
+        responses = await loadResponsesDirect(responsesFolderId, requestedId);
+      } else {
+        responses = await loadResponses(recordingFolderId, requestedId);
+      }
+    } catch {
+      // 回答データが取得できなくても進捗ページは表示する（全員未回答として扱う）
+    }
+
+    // ゲート設問に回答した respondent_id のセット
+    const answeredSet = new Set<string>();
+    for (const res of responses) {
+      if (res.value == null) continue;
+      const role = normalizeRole(res.question_id.split('-')[0]);
+      const gateQ = GATE_QUESTION_BY_ROLE[role];
+      if (res.question_id === gateQ) {
+        answeredSet.add(res.respondent_id);
+      }
     }
 
     // 店舗マップ（store_code → store_name）
@@ -73,13 +114,13 @@ export async function GET(req: NextRequest) {
     const storeMap = new Map<string, RespondentProgress[]>();
     for (const r of respondents) {
       if (!r.active) continue;
+      const role = normalizeRole(r.role) as 'MANAGER' | 'STAFF' | 'PA';
       const prog: RespondentProgress = {
         respondent_id: r.respondent_id,
         emp_no: r.emp_no,
         name: r.name,
-        role: r.role,
+        role,
         answered: answeredSet.has(r.respondent_id),
-        answered_at: answeredSet.get(r.respondent_id),
       };
       if (!storeMap.has(r.store_code)) storeMap.set(r.store_code, []);
       storeMap.get(r.store_code)!.push(prog);
